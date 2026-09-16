@@ -27,6 +27,9 @@ def go(config: DictConfig):
     os.environ["WANDB_PROJECT"] = config["main"]["project_name"]
     os.environ["WANDB_RUN_GROUP"] = config["main"]["experiment_name"]
 
+    # Ensure Python can locate wandb_utils inside the components directory for all steps
+    os.environ["PYTHONPATH"] = os.path.abspath("components")
+
     # Steps to execute
     steps_par = config['main']['steps']
     active_steps = steps_par.split(",") if steps_par != "all" else _steps
@@ -39,7 +42,7 @@ def go(config: DictConfig):
             _ = mlflow.run(
                 f"{config['main']['components_repository']}/get_data",
                 "main",
-                env_manager="conda",
+                env_manager="local",  # <-- Changed from "conda" to "local"
                 parameters={
                     "sample": config["etl"]["sample"],
                     "artifact_name": "sample.csv",
