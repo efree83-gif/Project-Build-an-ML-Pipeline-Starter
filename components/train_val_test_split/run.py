@@ -15,14 +15,13 @@ logger = logging.getLogger()
 
 
 def go(args):
-
     run = wandb.init(job_type="train_val_test_split")
     run.config.update(args)
 
     # Download input artifact. This will also note that this script is using this
     # particular version of the artifact
     logger.info(f"Fetching artifact {args.input}")
-    artifact_local_path = run.use_artifact(args.input).file()
+    artifact_local_path = run.use_artifact(args.input).file(root="artifacts/train_val_split")
 
     df = pd.read_csv(artifact_local_path)
 
@@ -35,19 +34,22 @@ def go(args):
     )
 
     # Save to output files
-    for df, k in zip([trainval, test], ['trainval', 'test']):
+    for df_split, k in zip([trainval, test], ['trainval', 'test']):
         logger.info(f"Uploading {k}_data.csv dataset")
-        with tempfile.NamedTemporaryFile("w") as fp:
 
-            df.to_csv(fp.name, index=False)
+        # Create a temp file and close its handle immediately so Windows releases the lock
+        fp = tempfile.NamedTemporaryFile("w", delete=False)
+        fp.close()
 
-            log_artifact(
-                f"{k}_data.csv",
-                f"{k}_data",
-                f"{k} split of dataset",
-                fp.name,
-                run,
-            )
+        df_split.to_csv(fp.name, index=False)
+
+        log_artifact(
+            f"{k}_data.csv",
+            f"{k}_data",
+            f"{k} split of dataset",
+            fp.name,
+            run,
+        )
 
 
 if __name__ == "__main__":

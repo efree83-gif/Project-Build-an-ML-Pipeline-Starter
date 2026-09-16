@@ -1,5 +1,4 @@
 import json
-
 import mlflow
 import tempfile
 import os
@@ -45,52 +44,89 @@ def go(config: DictConfig):
                     "sample": config["etl"]["sample"],
                     "artifact_name": "sample.csv",
                     "artifact_type": "raw_data",
-                    "artifact_description": "Raw file as downloaded"
+                    "artifact_description": "Raw_file_as_downloaded"
                 },
             )
 
         if "basic_cleaning" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            _ = mlflow.run(
+                "src/basic_cleaning",
+                "main",
+                env_manager="local",
+                parameters={
+                    "input_artifact": "sample.csv:latest",
+                    "output_artifact": "clean_sample.csv",
+                    "output_type": "clean_sample",
+                    "output_description": "Cleaned_data_sample",
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"]
+                },
+            )
 
         if "data_check" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            _ = mlflow.run(
+                "src/data_check",
+                "main",
+                env_manager="local",
+                parameters={
+                    "csv": "clean_sample.csv:latest",
+                    "ref": "clean_sample.csv:reference",
+                    "kl_threshold": config["data_check"]["kl_threshold"],
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"],
+                },
+            )
 
         if "data_split" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            os.environ["PYTHONPATH"] = os.path.abspath("components")  # <-- Use absolute path here
+            _ = mlflow.run(
+                f"{config['main']['components_repository']}/train_val_test_split",
+                "main",
+                env_manager="local",
+                parameters={
+                    "input": "clean_sample.csv:latest",
+                    "test_size": config["modeling"]["test_size"],
+                    "random_seed": config["modeling"]["random_seed"],
+                    "stratify_by": config["modeling"]["stratify_by"]
+                },
+            )
 
         if "train_random_forest" in active_steps:
+            # Write rf_config.json directly inside the component folder to avoid space-in-path errors on Windows
+            rf_config_path = os.path.join("src", "train_random_forest", "rf_config.json")
+            with open(rf_config_path, "w+") as fp:
+                json.dump(dict(config["modeling"]["random_forest"].items()), fp)
 
-            # NOTE: we need to serialize the random forest configuration into JSON
-            rf_config = os.path.abspath("rf_config.json")
-            with open(rf_config, "w+") as fp:
-                json.dump(dict(config["modeling"]["random_forest"].items()), fp)  # DO NOT TOUCH
-
-            # NOTE: use the rf_config we just created as the rf_config parameter for the train_random_forest
-            # step
-
-            ##################
-            # Implement here #
-            ##################
-
-            pass
+            _ = mlflow.run(
+                "src/train_random_forest",
+                "main",
+                env_manager="local",
+                parameters={
+                    "trainval_artifact": "trainval_data.csv:latest",
+                    "val_size": config["modeling"]["val_size"],
+                    "random_seed": config["modeling"]["random_seed"],
+                    "stratify_by": config["modeling"]["stratify_by"],
+                    "max_tfidf_features": config["modeling"]["max_tfidf_features"],
+                    "output_artifact": "model_export",
+                    "rf_config": "rf_config.json",
+                },
+            )
 
         if "test_regression_model" in active_steps:
+            # Ensure Python can locate wandb_utils inside the components directory
+            os.environ["PYTHONPATH"] = os.path.abspath("components")
 
-            ##################
-            # Implement here #
-            ##################
-
-            pass
+            _ = mlflow.run(
+                f"{config['main']['components_repository']}/test_regression_model",
+                "main",
+                env_manager="local",
+                parameters={
+                    "mlflow_model": "model_export:prod",
+                    "test_dataset": "test_data.csv:latest",
+                },
+            )
 
 
 if __name__ == "__main__":
     go()
+    

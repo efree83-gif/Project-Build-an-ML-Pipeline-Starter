@@ -31,7 +31,7 @@ def delta_date_feature(dates):
     between each date and the most recent date in its column
     """
     date_sanitized = pd.DataFrame(dates).apply(pd.to_datetime)
-    return date_sanitized.apply(lambda d: (d.max() -d).dt.days, axis=0).to_numpy()
+    return date_sanitized.apply(lambda d: (d.max() - d).dt.days, axis=0).to_numpy()
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -39,7 +39,6 @@ logger = logging.getLogger()
 
 
 def go(args):
-
     run = wandb.init(job_type="train_random_forest")
     run.config.update(args)
 
@@ -53,8 +52,8 @@ def go(args):
 
     # Use run.use_artifact(...).file() to get the train and validation artifact
     # and save the returned path in train_local_path
-    trainval_local_path = run.use_artifact(args.trainval_artifact).file()
-   
+    trainval_local_path = run.use_artifact(args.trainval_artifact).file(root="artifacts/train_random_forest")
+
     X = pd.read_csv(trainval_local_path)
     y = X.pop("price")  # this removes the column "price" from X and puts it into y
 
@@ -73,7 +72,7 @@ def go(args):
 
     ######################################
     # Fit the pipeline sk_pipe by calling the .fit method on X_train and y_train
-    # YOUR CODE HERE
+    sk_pipe.fit(X_train, y_train)
     ######################################
 
     # Compute r2 and MAE
@@ -96,18 +95,18 @@ def go(args):
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
     # HINT: use mlflow.sklearn.save_model
     mlflow.sklearn.save_model(
-        # YOUR CODE HERE
-        input_example = X_train.iloc[:5]
+        sk_pipe,
+        path="random_forest_dir",
+        input_example=X_train.iloc[:5]
     )
     ######################################
-
 
     # Upload the model we just exported to W&B
     artifact = wandb.Artifact(
         args.output_artifact,
-        type = 'model_export',
-        description = 'Trained ranfom forest artifact',
-        metadata = rf_config
+        type='model_export',
+        description='Trained ranfom forest artifact',
+        metadata=rf_config
     )
     artifact.add_dir('random_forest_dir')
     run.log_artifact(artifact)
@@ -119,20 +118,20 @@ def go(args):
     # Here we save variable r_squared under the "r2" key
     run.summary['r2'] = r_squared
     # Now save the variable mae under the key "mae".
-    # YOUR CODE HERE
+    run.summary['mae'] = mae
     ######################################
 
     # Upload to W&B the feture importance visualization
     run.log(
         {
-          "feature_importance": wandb.Image(fig_feat_imp),
+            "feature_importance": wandb.Image(fig_feat_imp),
         }
     )
 
 
 def plot_feature_importance(pipe, feat_names):
     # We collect the feature importance for all non-nlp features first
-    feat_imp = pipe["random_forest"].feature_importances_[: len(feat_names)-1]
+    feat_imp = pipe["random_forest"].feature_importances_[: len(feat_names) - 1]
     # For the NLP feature we sum across all the TF-IDF dimensions into a global
     # NLP importance
     nlp_importance = sum(pipe["random_forest"].feature_importances_[len(feat_names) - 1:])
@@ -162,7 +161,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # 1 - A SimpleImputer(strategy="most_frequent") to impute missing values
     # 2 - A OneHotEncoder() step to encode the variable
     non_ordinal_categorical_preproc = make_pipeline(
-        # YOUR CODE HERE
+        SimpleImputer(strategy="most_frequent"),
+        OneHotEncoder(),
     )
     ######################################
 
@@ -189,7 +189,7 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     )
 
     # Some minimal NLP for the "name" column
-    reshape_to_1d = FunctionTransformer(np.reshape, kw_args={"newshape": -1})
+    reshape_to_1d = FunctionTransformer(lambda x: x.reshape(-1))
     name_tfidf = make_pipeline(
         SimpleImputer(strategy="constant", fill_value=""),
         reshape_to_1d,
@@ -218,14 +218,15 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     random_forest = RandomForestRegressor(**rf_config)
 
     ######################################
-    # Create the inference pipeline. The pipeline must have 2 steps: 
+    # Create the inference pipeline. The pipeline must have 2 steps:
     # 1 - a step called "preprocessor" applying the ColumnTransformer instance that we saved in the `preprocessor` variable
     # 2 - a step called "random_forest" with the random forest instance that we just saved in the `random_forest` variable.
     # HINT: Use the explicit Pipeline constructor so you can assign the names to the steps, do not use make_pipeline
 
     sk_pipe = Pipeline(
-        steps =[
-        # YOUR CODE HERE
+        steps=[
+            ("preprocessor", preprocessor),
+            ("random_forest", random_forest),
         ]
     )
 
@@ -234,7 +235,6 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Basic cleaning of dataset")
 
     parser.add_argument(
@@ -268,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--rf_config",
         help="Random forest configuration. A JSON dict that will be passed to the "
-        "scikit-learn constructor for RandomForestRegressor.",
+             "scikit-learn constructor for RandomForestRegressor.",
         default="{}",
     )
 
